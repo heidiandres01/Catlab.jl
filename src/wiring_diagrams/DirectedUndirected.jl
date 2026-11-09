@@ -24,7 +24,10 @@ import ..DirectedWiringDiagrams: box, boxes, nboxes, add_box!, add_wire!,
 
 # import DWD, UWD.
 import ..DirectedWiringDiagrams
+#elements from DWD:
+  #Port struct, Wire struct
 import ..UndirectedWiringDiagrams
+#elements from UWD:
 
 # Data types
 ############
@@ -121,7 +124,151 @@ DirectedUndirectedWiringDiagram(undirected_port_types::AbstractVector{T},
 # Accessors
 #----------
 
-#STOPPED HERE###########################
+#UWD accessors
+outer_box(::HasDUWD) = 0
+box(d::HasDUWD, args...) = subpart(d, args..., :box)
+junction(d::HasDUWD, args...; outer::Bool=false) =
+  subpart(d, args..., outer ? :outer_junction : :junction)
+
+function junction(d::HasDUWD, port::Tuple{Int,Int})
+  box, nport = port
+  box == outer_box(d) ?
+    junction(d, nport, outer=true) : junction(d, ports(d, box)[nport])
+end
+
+nboxes(d::HasDUWD) = nparts(d, :Box)
+njunctions(d::HasDUWD) = nparts(d, :Junction)
+boxes(d::HasDUWD) = parts(d, :Box)
+junctions(d::HasDUWD) = parts(d, :Junction)
+
+ports(d::HasDUWD; outer::Bool=false) = parts(d, outer ? :OuterPort : :Port)
+ports(d::HasDUWD, box) =
+  box == outer_box(d) ? parts(d, :OuterPort) : incident(d, box, :box)
+ports_with_junction(d::HasDUWD, junction; outer::Bool=false) =
+  incident(d, junction, outer ? :outer_junction : :junction)
+
+junction_type(d::HasDUWD, args...) = subpart(d, args..., :junction_type)
+port_type(d::HasDUWD, args...; outer::Bool=false) =
+  subpart(d, args..., outer ? :outer_port_type : :port_type)
+
+function port_type(d::HasDUWD, port::Tuple{Int,Int})
+  box, nport = port
+  box == outer_box(d) ?
+    port_type(d, nport, outer=true) : port_type(d, ports(d, box)[nport])
+end
+
+
+#DWD accessors
+
+#Basic accessors
+
+#function box: see UWD accessors section
+#boxes, nboxes: see UWD accessors section
+box_ids(d::HasDUWD) = parts(d, :Box)
+
+src_box(d::HasDUWD, w::Int) = subpart(d, w, [:src, :out_port_box])
+tgt_box(d::HasDUWD, w::Int) = subpart(d, w, [:tgt, :in_port_box])
+in_tgt_box(d::HasDUWD, w::Int) = subpart(d, w, [:in_tgt, :in_port_box])
+out_src_box(d::HasDUWD, w::Int) = subpart(d, w, [:out_src, :out_port_box])
+
+local_in_port_id(d::HasDUWD, b::Int, p::Int) =
+  searchsortedfirst(incident(d, b, :in_port_box), p)
+local_out_port_id(d::HasDUWD, b::Int, p::Int) =
+  searchsortedfirst(incident(d, b, :out_port_box), p)
+
+in_port_id(d::HasDUWD, b::Int, p::Int) = incident(d, b, :in_port_box)[p]
+out_port_id(d::HasDUWD, b::Int, p::Int) = incident(d, b, :out_port_box)[p]
+
+#p::Port refers to struct Port in Directed, not Port::Ob, the UWD component
+in_port_id(d::HasDUWD, p::DirectedWiringDiagrams.Port) = in_port_id(d, p.box, p.port)
+out_port_id(d::HasDUWD, p::DirectedWiringDiagrams.Port) = out_port_id(d, p.box, p.port)
+
+
+# from Directed WiringDiagram struct section:
+# input_id(::WiringDiagram) = -2
+# output_id(::WiringDiagram) = -1
+# outer_ids(::WiringDiagram) = (-2,-1)
+input_id(::HasDUWD) = -2
+output_id(::HasDUWD) = -1
+outer_ids(::HasDUWD) = (-2,-1)
+#
+
+@inline DirectedWiringDiagrams.Wire(d::HasDUWD, type::Symbol, w::Int) = DirectedWiringDiagrams.Wire(d, Val{type}, w)
+
+function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:PassWire}}, w::Int)
+  DirectedWiringDiagrams.Wire(subpart(d, w, :pass_wire_value),
+       (input_id(d), subpart(d, w, :pass_src)) =>
+       (output_id(d), subpart(d, w, :pass_tgt)))
+end
+
+function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:InWire}}, w::Int)
+  DirectedWiringDiagrams.Wire(subpart(d, w, :in_wire_value),
+       (input_id(d),
+        subpart(d, w, :in_src)) => 
+       (in_tgt_box(d,w),
+        local_in_port_id(d, in_tgt_box(d,w), subpart(d, w, :in_tgt))))
+end
+
+function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:OutWire}}, w::Int)
+  DirectedWiringDiagrams.Wire(subpart(d, w, :out_wire_value),
+       (out_src_box(d,w),
+        local_out_port_id(d, out_src_box(d,w), subpart(d, w, :out_src))) =>
+       (output_id(d),
+        subpart(d, w, :out_tgt)))
+end
+
+function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:Wire}}, w::Int)
+  DirectedWiringDiagrams.Wire(subpart(d, w, :wire_value),
+       (src_box(d,w),
+        local_out_port_id(d, src_box(d,w), subpart(d, w, :src))) =>
+       (tgt_box(d,w),
+        local_in_port_id(d, tgt_box(d,w), subpart(d, w, :tgt))))
+end
+
+function wires(d::HasDUWD, src::Int, tgt::Int)
+  if src == input_id(d) && tgt == output_id(d)
+    [DirectedWiringDiagrams.Wire(d, :PassWire, w) for w in parts(d, :PassWire)]
+  elseif src == input_id(d)
+    [DirectedWiringDiagrams.Wire(d, :InWire, w)
+     for w in incident(d, tgt, [:in_tgt, :in_port_box])]
+  elseif tgt == output_id(d)
+    [DirectedWiringDiagrams.Wire(d, :OutWire, w)
+     for w in incident(d, src, [:out_src, :out_port_box])]
+  else
+    [DirectedWiringDiagrams.Wire(d, :Wire, w) for w in incident(d, src, [:src, :out_port_box])
+     if tgt_box(d,w) == tgt]
+  end
+end
+
+wires(d::HasDUWD, type::Symbol) =
+  [ DirectedWiringDiagrams.Wire(d, type, w) for w in parts(d, type) ]
+wires(d::HasDUWD) = vcat(wires(d, :PassWire), wires(d, :InWire),
+                               wires(d, :Wire), wires(d, :OutWire))
+
+
+function nwires(d::HasDUWD, src::Int, tgt::Int)
+  if src == input_id(d) && tgt == output_id(d)
+    nparts(d, :PassWire)
+  elseif src == input_id(d)
+    length(incident(d, tgt, [:in_tgt, :in_port_box]))
+  elseif tgt == output_id(d)
+    length(incident(d, src, [:out_src, :out_port_box]))
+  else
+    count(w -> tgt_box(d,w) == tgt,
+          incident(d, src, [:src, :out_port_box]))
+  end
+end
+
+nwires(d::HasDUWD, type::Symbol) = nparts(d, type)
+nwires(d::HasDUWD) = (nwires(d, :PassWire) + nwires(d, :InWire) +
+                            nwires(d, :Wire) + nwires(d, :OutWire))
+
+has_wire(d::HasDUWD, src::Int, tgt::Int) = nwires(d, src, tgt) > 0
+has_wire(d::HasDUWD, wire::DirectedWiringDiagrams.Wire) =
+  wire in wires(d, wire.source.box, wire.target.box)
+has_wire(d::HasDUWD, pair::Pair) = has_wire(d, DirectedWiringDiagrams.Wire(pair))
+
+##
 
 
 
