@@ -512,7 +512,158 @@ function add_outer_out_port!(d::AbstractDUWD, value)
   add_part!(d, :OuterOutPort, outer_out_port_type=value)
 end
 
-#Graph properties: TODO
+#Graph properties
+""" Graph underlying wiring diagram, with edges for internal wires only.
+"""
+function internal_graph(d::HasDUWD)
+  g = WiringDiagramGraph()
+  add_parts!(g, :V, nparts(d, :Box), box = parts(d, :Box))
+  add_parts!(g, :E, nparts(d, :Wire),
+             src = subpart(d, [:src, :out_port_box]),
+             tgt = subpart(d, [:tgt, :in_port_box]),
+             wire = parts(d, :Wire))
+  return g
+end
+
+""" Graph underlying wiring diagram, including parts for noin-internal wires.
+
+The graph has two special vertices representing the input and output boundaries
+of the outer box.
+"""
+function graph(d::HasDUWD)
+  g = internal_graph(d)
+  input, output = add_parts!(g, :V, 2, box = [input_id(d), output_id(d)])
+  add_parts!(g, :E, nparts(d, :InWire),
+             src = input,
+             tgt = subpart(d, [:in_tgt, :in_port_box]),
+             wire = parts(d, :InWire))
+  add_parts!(g, :E, nparts(d, :OutWire),
+             src = subpart(d, [:out_src, :out_port_box]),
+             tgt = output,
+             wire = parts(d, :OutWire))
+  add_parts!(g, :E, nparts(d, :PassWire),
+             src = input, tgt = output,
+             wire = parts(d, :PassWire))
+  return g
+end
+
+function outneighbors(d::HasDUWD, b::Int)
+  if b == input_id(d)
+    vcat(subpart(d, [:in_tgt, :in_port_box]),
+         fill(output_id(d), nwires(d, :PassWire)))
+  elseif b == output_id(d)
+    Int[]
+  else
+    vcat(subpart(d, incident(d, b, [:src, :out_port_box]),
+                 [:tgt, :in_port_box]),
+         fill(output_id(d),
+              length(incident(d, b, [:out_src, :out_port_box]))))
+  end
+end
+
+function inneighbors(d::HasDUWD, b::Int)
+  if b == input_id(d)
+    Int[]
+  elseif b == output_id(d)
+    vcat(fill(input_id(d), nwires(d, :PassWire)),
+         subpart(d, [:out_src, :out_port_box]))
+  else
+    vcat(fill(input_id(d),
+              length(incident(d, b, [:in_tgt, :in_port_box]))),
+         subpart(d, incident(d, b, [:tgt, :in_port_box]),
+                 [:src, :out_port_box]))
+  end
+end
+
+neighbors(d::HasDUWD, b::Int) = outneighbors(d, b)
+all_neighbors(d::HasDUWD, b::Int) = 
+  Iterators.flatten((inneighbors(d, b), outneighbors(d, b)))
+
+""" Get all wires coming into or out of the box.
+"""
+function wires(d::HasDUWD, b::Int)
+  vcat(in_wires(d,b), out_wires(d,b))
+end
+
+""" Get all wires coming into the box.
+"""
+function in_wires(d::HasDUWD, b::Int)
+  if b == input_id(d)
+    DirectedWiringDiagrams.Wire[]
+  elseif b == output_id(d)
+    vcat(wires(d, :PassWire), wires(d, :OutWire))
+  else
+    vcat([DirectedWiringDiagrams.Wire(d, :Wire, w) for w in incident(d, b, [:tgt, :in_port_box])],
+         [DirectedWiringDiagrams.Wire(d, :InWire, w) for w in incident(d, b, [:in_tgt, :in_port_box])])
+  end
+end
+
+""" Get all wires coming into the port.
+"""
+function in_wires(d::HasDUWD, port::Port)
+  filter(wire -> wire.target == port, in_wires(d, port.box))
+end
+function in_wires(d::HasDUWD, v::Int, port::Int)
+  in_wires(d, Port(v, InputPort, port))
+end
+
+""" Get all wires coming out of the box.
+"""
+function out_wires(d::HasDUWD, b::Int)
+  if b == input_id(d)
+    vcat(wires(d, :PassWire), wires(d, :InWire))
+  elseif b == output_id(d)
+    return DirectedWiringDiagrams.Wire[]
+  else
+    vcat([DirectedWiringDiagrams.Wire(d, :Wire, w) for w in incident(d, b, [:src, :out_port_box])],
+         [DirectedWiringDiagrams.Wire(d, :OutWire, w) for w in incident(d, b, [:out_src, :out_port_box])])
+  end
+end
+
+""" Get all wires coming out of the port.
+"""
+function out_wires(d::HasDUWD, port::Port)
+  filter(wire -> wire.source == port, out_wires(d, port.box))
+end
+function out_wires(d::HasDUWD, v::Int, port::Int)
+  out_wires(d, Port(v, OutputPort, port))
+end
+
+
+# Other constructors
+#-------------------
+#shared
+# singleton_diagram
+
+function singleton_diagram(::Type{DUWD}, undirected_port_types::AbstractVector{T},
+  directed_in_types::AbstractVector{T},
+  directed_out_types::AbstractVector{T};
+                           data...) where DUWD <: AbstractDUWD
+  d = DUWD(undirected_port_types, directed_in_types, directed_out_types)
+
+  #DWD
+  
+
+  #UWD
+  
+  
+  
+  return d
+end
+
+
+
+
+#UWD
+#cospan_diagram
+#junction_diagram
+#map_port_types
+
+
+#DWD
+#induced_subdiagram
+
+#DUWD-specific (?)
 
 
 ###################################################################
