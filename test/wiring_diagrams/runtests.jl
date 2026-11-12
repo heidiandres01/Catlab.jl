@@ -4,6 +4,7 @@ using Test
   include("Directed.jl")
   include("CPortGraphs.jl")
   include("Undirected.jl")
+  include("DirectedUndirected.jl")
 end
 
 @testset "Monoidal" begin

@@ -2,8 +2,31 @@
 Data structure for undirected directed wiring diagrams.
 """
 module DirectedUndirectedWiringDiagrams
-#TODO add what to export
-#export ...
+export DirectedUndirectedWiringDiagram, HasDUWD,
+  AbstractDUWD, TypedDUWD, SchDUWD, SchTypedDUWD,
+  outer_box, box, junction, nboxes, njunctions, boxes, junctions,
+  ports, ports_with_junction, junction_type, port_type,
+  add_box!, add_junction!, add_junctions!, set_junction!, add_wire!,
+  add_wires!, 
+  input_ports, output_ports,
+  set_input_ports!, set_output_ports!, add_input_ports!, add_output_ports!,
+  input_id, output_id, outer_ids, boxes, box_ids, nboxes, nwires, box, wires,
+  has_wire, graph, internal_graph,
+  add_box!, add_wire!, add_wires!, rem_box!, rem_boxes!, rem_wire!,
+  rem_wires!, port_value,
+  all_neighbors, neighbors, outneighbors, inneighbors, in_wires, out_wires
+
+
+  #UWD:
+  #not exported: UntypedUWD, 
+  #to export once defined:
+    # singleton_diagram, cospan_diagram, junction_diagram, ocompose, substitute
+
+  #DWD:
+  #not exported: add_boxes!, validate_ports, is_isomorphic
+  #to export once defined:
+    #   singleton_diagram, induced_subdiagram, encapsulated_subdiagram, ocompose, substitute, encapsulate
+
 
 #adding all using and import statements from Directed.jl and Undirected.jl
 #Directed.jl
@@ -82,25 +105,24 @@ const DirectedUndirectedWiringDiagram = AbstractDUWD
   compose(outer_junction, junction_type) == outer_port_type
 
   #DWD elements
-  #removed 'PortValue::AttrType', changed 'PortValue' to 'Type'
+  #TODO removed 'PortValue::AttrType', changed 'PortValue' to 'Type'
   in_port_type::Attr(InPort, Type)
   out_port_type::Attr(OutPort, Type)
   outer_in_port_type::Attr(OuterInPort, Type)
   outer_out_port_type::Attr(OuterOutPort, Type)
 
-  #note: DWD doesn't have :in_port_box or :out_port_box here. should I add them?
+  #TODO note: DWD doesn't have :in_port_box or :out_port_box here. should I add them?
 end
 
 @acset_type TypedDUWD(SchTypedDUWD,
   index=[:box, :junction, :outer_junction,
-  :src, :tgt, :in_src, :in_tgt, :out_src, :out_tgt, :pass_src, :pass_tgt])
-  <: AbstractDUWD
+  :src, :tgt, :in_src, :in_tgt, :out_src, :out_tgt, :pass_src, :pass_tgt]) <: AbstractDUWD
 
 #skipping AttributedWiringDiagram, since I can't find a comparison for UWD
 
 function (::Type{DUWD})(undirected_port_types::AbstractVector{T},
   directed_in_types::AbstractVector{T},
-  directed_out_types::AbstractVector{T}) where DUWD <: AbstractDUWD
+  directed_out_types::AbstractVector{T}) where {T, DUWD <: AbstractDUWD}
   d = DUWD()
   nUndirectedPorts = length(undirected_port_types)
   nDirectedInPorts = length(directed_in_types)
@@ -196,21 +218,20 @@ outer_ids(::HasDUWD) = (-2,-1)
 @inline DirectedWiringDiagrams.Wire(d::HasDUWD, type::Symbol, w::Int) = DirectedWiringDiagrams.Wire(d, Val{type}, w)
 
 function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:PassWire}}, w::Int)
-  DirectedWiringDiagrams.Wire(subpart(d, w, :pass_wire_value),
-       (input_id(d), subpart(d, w, :pass_src)) =>
-       (output_id(d), subpart(d, w, :pass_tgt)))
+  DirectedWiringDiagrams.Wire(
+      (input_id(d), subpart(d, w, :pass_src)) =>
+      (output_id(d), subpart(d, w, :pass_tgt)))
 end
 
 function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:InWire}}, w::Int)
-  DirectedWiringDiagrams.Wire(subpart(d, w, :in_wire_value),
-       (input_id(d),
-        subpart(d, w, :in_src)) => 
+  DirectedWiringDiagrams.Wire(
+       (input_id(d), subpart(d, w, :in_src)) => 
        (in_tgt_box(d,w),
         local_in_port_id(d, in_tgt_box(d,w), subpart(d, w, :in_tgt))))
 end
 
 function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:OutWire}}, w::Int)
-  DirectedWiringDiagrams.Wire(subpart(d, w, :out_wire_value),
+  DirectedWiringDiagrams.Wire(
        (out_src_box(d,w),
         local_out_port_id(d, out_src_box(d,w), subpart(d, w, :out_src))) =>
        (output_id(d),
@@ -218,7 +239,7 @@ function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:OutWire}}, w::Int)
 end
 
 function DirectedWiringDiagrams.Wire(d::HasDUWD, ::Type{Val{:Wire}}, w::Int)
-  DirectedWiringDiagrams.Wire(subpart(d, w, :wire_value),
+  DirectedWiringDiagrams.Wire(
        (src_box(d,w),
         local_out_port_id(d, src_box(d,w), subpart(d, w, :src))) =>
        (tgt_box(d,w),
@@ -304,14 +325,14 @@ function output_ports(d::HasDUWD, b::Int)
   end
 end
 
-function port_value(d::HasDUWD, port::Port)
+function port_value(d::HasDUWD, port::DirectedWiringDiagrams.Port)
   if port.box == input_id(d)
     subpart(d, port.port, :outer_in_port_type)
   elseif port.box == output_id(d)
     subpart(d, port.port, :outer_out_port_type)
   else
-    port_id   = port.kind == InputPort ? in_port_id : out_port_id
-    type_expr = port.kind == InputPort ? :in_port_type : :out_port_type
+    port_id   = port.kind == DirectedWiringDiagrams.InputPort ? in_port_id : out_port_id
+    type_expr = port.kind == DirectedWiringDiagrams.InputPort ? :in_port_type : :out_port_type
     subpart(d, port_id(d, port), type_expr)
   end
 end
@@ -323,7 +344,7 @@ add_box!(d::AbstractDUWD; data...) = add_part!(d, :Box; data...)
 
 function add_box!(d::AbstractDUWD, undirected_port_types::AbstractVector{T},
   directed_in_types::AbstractVector{T},
-  directed_out_types::AbstractVector{T}; data...)
+  directed_out_types::AbstractVector{T}; data...) where {T}
   box = add_box!(d; data...)
 
   nUndirectedPorts = length(undirected_port_types)
@@ -341,15 +362,14 @@ function add_box!(d::AbstractDUWD, undirected_port_types::AbstractVector{T},
   box
 end
 
-
-
 #UWD mutators
 add_junction!(d::AbstractDUWD; data...) = add_part!(d, :Junction; data...)
 add_junction!(d::AbstractDUWD, type; data...) =
   add_part!(d, :Junction; junction_type=type, data...)
 
-add_junctions!(d::AbstractDUWD, njunctions::Int; data...) =
-  add_parts!(d, :Junction, njunctions; data...)
+  #TODO commented out, I think this is for untyped?
+# add_junctions!(d::AbstractDUWD, njunctions::Int; data...) =
+#   add_parts!(d, :Junction, njunctions; data...)
 add_junctions!(d::AbstractDUWD, types::AbstractVector; data...) =
   add_parts!(d, :Junction, length(types); junction_type=types, data...)
 
@@ -387,37 +407,37 @@ function add_wire!(d::AbstractDUWD, port1::Tuple{Int,Int}, port2::Tuple{Int,Int}
     set_junction!(d, port2, j)
   end
 end
-add_wire!(d, wire::Pair) = add_wire!(d, first(wire), last(wire))
-
-function add_wires!(d::AbstractDUWD, wires)
-  for wire in wires
-    add_wire!(d, wire)
-  end
-end
+add_wire!(d::AbstractDUWD, wire::Pair{Tuple{Int,Int}, Tuple{Int,Int}}) = add_wire!(d, first(wire), last(wire))
 
 #DWD mutators
 # Graph mutation
-function add_wire!(d::AbstractDUWDm, wire::DirectedWiringDiagrams.Wire)
+function validate_ports(source_port::Symbol, target_port::Symbol)
+  if source_port != target_port
+    error("Source port $source_port does not equal target port $target_port")
+  end
+end
+
+function add_wire!(d::AbstractDUWD, wire::DirectedWiringDiagrams.Wire)
   validate_ports(port_value(d, wire.source), port_value(d, wire.target))
   if wire.source.box == input_id(d) && wire.target.box == output_id(d)
-    add_part!(d, :PassWire, pass_wire_value = wire.value,
+    add_part!(d, :PassWire,
               pass_src = wire.source.port,
               pass_tgt = wire.target.port)
   elseif wire.source.box == input_id(d)
-    add_part!(d, :InWire, in_wire_value = wire.value,
+    add_part!(d, :InWire,
               in_src = wire.source.port,
               in_tgt = in_port_id(d, wire.target))
   elseif wire.target.box == output_id(d)
-    add_part!(d, :OutWire, out_wire_value=wire.value,
+    add_part!(d, :OutWire,
               out_src = out_port_id(d, wire.source),
               out_tgt = wire.target.port)
   else
-    add_part!(d, :Wire, wire_value=wire.value,
+    add_part!(d, :Wire,
               src = out_port_id(d, wire.source),
               tgt = in_port_id(d, wire.target))
   end
 end
-add_wire!(d::AbstractDUWD, pair::Pair) = add_wire!(d, DirectedWiringDiagrams.Wire(pair))
+add_wire!(d::AbstractDUWD, pair::Pair{DirectedWiringDiagrams.Port, DirectedWiringDiagrams.Port}) = add_wire!(d, DirectedWiringDiagrams.Wire(pair))
 
 function add_wires!(d::AbstractDUWD, wires)
   for wire in wires
@@ -434,18 +454,18 @@ function rem_boxes!(d::AbstractDUWD, bs::AbstractVector{Int})
   @assert all(1 <= b <= nboxes(d) for b in bs)
 
   # Remove associated directed wires.
-  rem_parts!(d, :InWire, incident_reduce(d, bs, [:in_tgt, :in_port_box]))
-  rem_parts!(d, :OutWire, incident_reduce(d, bs, [:out_src, :out_port_box]))
-  rem_parts!(d, :Wire, incident_reduce(d, bs, [:tgt, :in_port_box]))
-  rem_parts!(d, :Wire, incident_reduce(d, bs, [:src, :out_port_box]))
+  rem_parts!(d, :InWire, DirectedWiringDiagrams.incident_reduce(d, bs, [:in_tgt, :in_port_box]))
+  rem_parts!(d, :OutWire, DirectedWiringDiagrams.incident_reduce(d, bs, [:out_src, :out_port_box]))
+  rem_parts!(d, :Wire, DirectedWiringDiagrams.incident_reduce(d, bs, [:tgt, :in_port_box]))
+  rem_parts!(d, :Wire, DirectedWiringDiagrams.incident_reduce(d, bs, [:src, :out_port_box]))
 
   # Remove associated directed ports.
-  rem_parts!(d, :InPort, incident_reduce(d, bs, [:in_port_box]))
-  rem_parts!(d, :OutPort, incident_reduce(d, bs, [:out_port_box]))
+  rem_parts!(d, :InPort, DirectedWiringDiagrams.incident_reduce(d, bs, [:in_port_box]))
+  rem_parts!(d, :OutPort, DirectedWiringDiagrams.incident_reduce(d, bs, [:out_port_box]))
 
   #UWD components
   #TODO
-  rem_parts!(d, :Port, incident_reduce(d, bs, [:box]))
+  rem_parts!(d, :Port, DirectedWiringDiagrams.incident_reduce(d, bs, [:box]))
 
 
 
@@ -457,25 +477,21 @@ rem_boxes!(d::AbstractDUWD, bs) = rem_boxes!(d, collect(Int, bs))
 function rem_wire!(d::AbstractDUWD, wire::DirectedWiringDiagrams.Wire)
   if wire.source.box == input_id(d) && wire.target.box == output_id(d)
     for w in parts(d, :PassWire)
-      subpart(d, w, :pass_wire_value) == wire.value &&
         subpart(d, w, :pass_src) == wire.source.port &&
         subpart(d, w, :pass_tgt) == wire.target.port &&
         return rem_part!(d, :PassWire, w)
     end
   elseif wire.source.box == input_id(d)
     for w in incident(d, in_port_id(d, wire.target), :in_tgt)
-      subpart(d, w, :in_wire_value) == wire.value &&
         return rem_part!(d, :InWire, w)
     end
   elseif wire.target.box == output_id(d)
     for w in incident(d, out_port_id(d, wire.source), :out_src)
-      subpart(d, w, :out_wire_value) == wire.value &&
         return rem_part!(d, :OutWire, w)
     end
   else
     for w in incident(d, out_port_id(d, wire.source), :src)
       subpart(d, w, :tgt) == in_port_id(d, wire.target) &&
-        subpart(d, w, :wire_value) == wire.value &&
         return rem_part!(d, :Wire, w)
     end
   end
@@ -516,7 +532,7 @@ end
 """ Graph underlying wiring diagram, with edges for internal wires only.
 """
 function internal_graph(d::HasDUWD)
-  g = WiringDiagramGraph()
+  g = DirectedWiringDiagrams.WiringDiagramGraph()
   add_parts!(g, :V, nparts(d, :Box), box = parts(d, :Box))
   add_parts!(g, :E, nparts(d, :Wire),
              src = subpart(d, [:src, :out_port_box]),
@@ -600,11 +616,11 @@ end
 
 """ Get all wires coming into the port.
 """
-function in_wires(d::HasDUWD, port::Port)
+function in_wires(d::HasDUWD, port::DirectedWiringDiagrams.Port)
   filter(wire -> wire.target == port, in_wires(d, port.box))
 end
 function in_wires(d::HasDUWD, v::Int, port::Int)
-  in_wires(d, Port(v, InputPort, port))
+  in_wires(d, DirectedWiringDiagrams.Port(v, DirectedWiringDiagrams.InputPort, port))
 end
 
 """ Get all wires coming out of the box.
@@ -622,11 +638,11 @@ end
 
 """ Get all wires coming out of the port.
 """
-function out_wires(d::HasDUWD, port::Port)
+function out_wires(d::HasDUWD, port::DirectedWiringDiagrams.Port)
   filter(wire -> wire.source == port, out_wires(d, port.box))
 end
 function out_wires(d::HasDUWD, v::Int, port::Int)
-  out_wires(d, Port(v, OutputPort, port))
+  out_wires(d, DirectedWiringDiagrams.Port(v, DirectedWiringDiagrams.OutputPort, port))
 end
 
 
@@ -634,23 +650,6 @@ end
 #-------------------
 #shared
 # singleton_diagram
-
-function singleton_diagram(::Type{DUWD}, undirected_port_types::AbstractVector{T},
-  directed_in_types::AbstractVector{T},
-  directed_out_types::AbstractVector{T};
-                           data...) where DUWD <: AbstractDUWD
-  d = DUWD(undirected_port_types, directed_in_types, directed_out_types)
-
-  #DWD
-  
-
-  #UWD
-  
-  
-  
-  return d
-end
-
 
 
 
