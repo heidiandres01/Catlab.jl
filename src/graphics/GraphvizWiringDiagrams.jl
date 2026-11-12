@@ -696,4 +696,287 @@ function to_graphviz_property_graph(cp::CPortGraph;
   )
 end
 
+
+
+
+#DUWD graphviz
+#for DWD components:
+
+function to_graphviz(d::DirectedUndirectedWiringDiagram;
+    graph_name::String="G", orientation::LayoutOrientation=TopToBottom,
+    node_labels::Bool=true, labels::Bool=false, label_attr::Symbol=:label,
+    port_size::String="24", junction_size::String="0.05",
+    uwd_junction_size::String="0.075",
+    junction_labels::Union{Bool,Symbol}=false,
+    port_labels::Bool=false,
+    implicit_junctions::Bool=false,
+    outer_ports::Bool=true, anchor_outer_ports::Bool=true,
+    graph_attrs::AbstractDict=Dict(), node_attrs::AbstractDict=Dict(),
+    title::Union{Nothing, Graphviz.Label}=nothing,
+    node_colors::AbstractDict=Dict(),
+    edge_attrs::AbstractDict=Dict(), cell_attrs::AbstractDict=Dict())::Graphviz.Graph
+  @assert label_attr in (:label, :xlabel, :headlabel, :taillabel)
+
+  #added UWD parameters:
+    # uwd_junction_size::String="0.075",
+    # junction_labels::Union{Bool,Symbol}=false,
+    # port_labels::Bool=false,
+    # implicit_junctions::Bool=false,
+
+  # State variables.
+  stmts = Graphviz.Statement[]
+  if !isnothing(title)
+    push!(stmts, title)
+  end
+  port_map = Dict{Port,Graphviz.NodeID}()
+  update_port_map! = (v::Int, kind::PortKind, node_ids) -> begin
+    for (i, node_id) in enumerate(node_ids)
+      port_map[Port(v,kind,i)] = node_id
+    end
+  end
+
+  #UWD:
+  uwd_port_map = Dict{Int,Graphviz.NodeID}()
+  uwd_outer_map = Dict{Int,Graphviz.NodeID}()
+
+  # Invisible nodes for incoming and outgoing wires.
+  if outer_ports
+    gv_box = graphviz_outer_box(d;
+      anchor=anchor_outer_ports, orientation=orientation)
+    append!(stmts, gv_box.stmts)
+    update_port_map!(input_id(d), OutputPort, gv_box.input_ports)
+    update_port_map!(output_id(d), InputPort, gv_box.output_ports)
+
+
+    #UWD
+    for p in ports(d, outer=true)
+      nid = "uwd_outer$p"
+      push!(stmts, Graphviz.Node(nid;
+        id=nid, style="invis", shape="none", label="",
+        width="0", height="0", margin="0"))
+      uwd_outer_map[p] = Graphviz.NodeID(nid)
+    end
+
+
+  end
+
+  # Visible nodes for boxes.
+  default_attrs = default_directed_graphviz_attrs
+  cell_attrs = merge(default_attrs.cell, Graphviz.as_attributes(cell_attrs))
+  for v in box_ids(d)
+    
+    gv_box, uwd_node_ids = duwd_graphviz_box(d, v, box_id([v]),
+      orientation=orientation, labels=node_labels, port_size=port_size,
+      junction_size=junction_size, node_color=get(node_colors,v, nothing),
+      cell_attrs=cell_attrs)
+    append!(stmts, gv_box.stmts)
+    update_port_map!(v, InputPort, gv_box.input_ports)
+    update_port_map!(v, OutputPort, gv_box.output_ports)
+    for (p, nid) in zip(ports(d, v), uwd_node_ids)
+      uwd_port_map[p] = nid
+    end
+  end
+
+  #DWD
+  # Edges.
+  for (i, wire) in enumerate(wires(d))
+    source, target = wire.source, wire.target
+    if !(haskey(port_map, source) && haskey(port_map, target))
+      continue
+    end
+    # Use the port value to label the wire. We take the source port.
+    # In most wiring diagrams, the source and target ports should yield the
+    # same label, but that is not guaranteed. An advantage of choosing the
+    # source port over the target port is that it will carry the
+    # "more specific" type when implicit conversions are allowed.
+    port = port_value(d, source)
+    attrs = Graphviz.Attributes(
+      :id => wire_id(Int[], i),
+      :comment => edge_label(port),
+    )
+    if labels
+      attrs[label_attr] = edge_label(port)
+    end
+    edge = Graphviz.Edge(port_map[source], port_map[target]; attrs...)
+    push!(stmts, edge)
+  end
+  
+  
+  #UWD edges and junctions
+  for j in junctions(d)
+    # Collect all UWD ports (box ports + outer ports) attached to junction j.
+    incident_nodes = Tuple{Graphviz.NodeID, Int}[]
+    for port in ports_with_junction(d, j)
+      b = subpart(d, port, :box)
+      port_idx = findfirst(==(port), ports(d, b))
+      push!(incident_nodes, (uwd_port_map[port], port_idx))
+    end
+    if outer_ports
+      for port in ports_with_junction(d, j, outer=true)
+        push!(incident_nodes, (uwd_outer_map[port], port))
+      end
+    end
+
+    # Case 1: Implicit junction (draw a direct undirected wire if exactly 2 ports meet).
+    if implicit_junctions && length(incident_nodes) == 2
+      (src_id, src_idx), (tgt_id, tgt_idx) = incident_nodes
+      e_attrs = Graphviz.Attributes(:dir => "none", :constraint => "false")
+      if port_labels
+        e_attrs[:taillabel] = string(src_idx)
+        e_attrs[:headlabel] = string(tgt_idx)
+      end
+      push!(stmts, Graphviz.Edge(src_id, tgt_id; e_attrs...))
+
+    # Case 2: Explicit black circular junction node + incident undirected edges.
+    else
+      jid = "junction$j"
+      j_attrs = Graphviz.Attributes(
+        :id => jid,
+        :comment => "junction",
+        :shape => "circle",
+        :label => "",
+        :style => "filled",
+        :fillcolor => "black",
+        :width => uwd_junction_size,
+        :height => uwd_junction_size,
+      )
+      if junction_labels isa Symbol
+        j_attrs[:xlabel] = node_label(subpart(d, j, junction_labels))
+      elseif junction_labels
+        j_attrs[:xlabel] = string(j)
+      end
+      push!(stmts, Graphviz.Node(jid; j_attrs...))
+
+      for (port_node_id, port_idx) in incident_nodes
+        e_attrs = Graphviz.Attributes(:dir => "none", :constraint => "false")
+        if port_labels
+          e_attrs[:taillabel] = string(port_idx)
+        end
+        push!(stmts, Graphviz.Edge(port_node_id, Graphviz.NodeID(jid); e_attrs...))
+      end
+    end
+  end
+
+
+  # Graph.
+  Graphviz.Digraph(graph_name, stmts; prog="dot",
+    graph_attrs=merge(default_attrs.graph, Graphviz.as_attributes(graph_attrs),
+      Graphviz.Attributes(
+        :rankdir => rank_dir(orientation)
+      )),
+    node_attrs=merge(default_attrs.node, Graphviz.as_attributes(node_attrs)),
+    edge_attrs=merge(default_attrs.edge, Graphviz.as_attributes(edge_attrs)))
+end
+
+function graphviz_outer_box(d::DirectedUndirectedWiringDiagram;
+    anchor::Bool=true, orientation::LayoutOrientation=TopToBottom)
+  # Subgraphs containing invisible nodes.
+  stmts = Graphviz.Statement[]
+  ninputs, noutputs = length(input_ports(d)), length(output_ports(d))
+  if ninputs > 0
+    push!(stmts, graphviz_outer_ports(InputPort, ninputs;
+      anchor=anchor, orientation=orientation))
+  end
+  if noutputs > 0
+    push!(stmts, graphviz_outer_ports(OutputPort, noutputs;
+      anchor=anchor, orientation=orientation))
+  end
+
+  # Input and output ports.
+  inputs = map(1:ninputs) do i
+    Graphviz.NodeID(port_node_name(InputPort, i),
+                    port_anchor(OutputPort, orientation))
+  end
+  outputs = map(1:noutputs) do i
+    Graphviz.NodeID(port_node_name(OutputPort, i),
+                    port_anchor(InputPort, orientation))
+  end
+
+  GraphvizBox(stmts, inputs, outputs)
+end
+
+function duwd_graphviz_box(d::DirectedUndirectedWiringDiagram, v::Int, node_id::String;
+    orientation::LayoutOrientation=TopToBottom,
+    labels::Bool=true, port_size::String="0",
+    node_color::Union{Nothing,String}=nothing,
+    cell_attrs::AbstractDict=Dict(), kw...)
+  nin  = length(input_ports(d, v))
+  nout = length(output_ports(d, v))
+  nuwd = length(ports(d, v))
+
+  html_label = box_html_label(nin, nout, nuwd, "";
+    orientation=orientation, port_size=port_size, attrs=cell_attrs)
+
+  node = Graphviz.Node(node_id,
+    id = node_id,
+    comment = "",
+    label = html_label,
+    color = "black",
+    fillcolor = isnothing(node_color) ? "white" : node_color,
+    style = isnothing(node_color) ? "solid" : "filled"
+  )
+
+  # DWD input and output port anchors (identical to graphviz_box).
+  graphviz_port = (kind::PortKind, port::Int) ->
+    Graphviz.NodeID(node_id, port_name(kind, port), port_anchor(kind, orientation))
+
+  inputs  = [ graphviz_port(InputPort, i) for i in 1:nin ]
+  outputs = [ graphviz_port(OutputPort, i) for i in 1:nout ]
+
+  # UWD port anchors: East (right) when vertical, South (bottom) when horizontal.
+  uwd_compass = is_vertical(orientation) ? "e" : "s"
+  uwd_ports = [ Graphviz.NodeID(node_id, "uwd$i", uwd_compass) for i in 1:nuwd ]
+
+  return GraphvizBox([node], inputs, outputs), uwd_ports
+end
+
+# 4-argument overload of box_html_label supporting DWD + UWD ports.
+function box_html_label(nin::Int, nout::Int, nuwd::Int, text_label::String;
+    orientation::LayoutOrientation=TopToBottom, port_size::String="0",
+    attrs::AbstractDict=Dict())::Graphviz.Html
+  if is_vertical(orientation)
+    input_label  = ports_horizontal_html_label(InputPort, nin, port_size)
+    output_label = ports_horizontal_html_label(OutputPort, nout, port_size)
+    uwd_label    = uwd_ports_html_label(nuwd, port_size; vertical=true)
+    uwd_td       = nuwd > 0 ? "<TD>$uwd_label</TD>" : ""
+    Graphviz.Html("""
+      <TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0">
+      <TR><TD>$(orientation == TopToBottom ? input_label : output_label)</TD>$(nuwd > 0 ? "<TD></TD>" : "")</TR>
+      <TR><TD $(html_attributes(attrs))>$(escape_html(text_label))</TD>$uwd_td</TR>
+      <TR><TD>$(orientation == BottomToTop ? input_label : output_label)</TD>$(nuwd > 0 ? "<TD></TD>" : "")</TR>
+      </TABLE>""")
+  else
+    input_label  = ports_vertical_html_label(InputPort, nin, port_size)
+    output_label = ports_vertical_html_label(OutputPort, nout, port_size)
+    uwd_label    = uwd_ports_html_label(nuwd, port_size; vertical=false)
+    uwd_row      = nuwd > 0 ? "<TR><TD></TD><TD>$uwd_label</TD><TD></TD></TR>" : ""
+    Graphviz.Html("""
+      <TABLE BORDER="0" CELLPADDING="0" CELLSPACING="0">
+      <TR>
+      <TD>$(orientation == LeftToRight ? input_label : output_label)</TD>
+      <TD $(html_attributes(attrs))>$(escape_html(text_label))</TD>
+      <TD>$(orientation == RightToLeft ? input_label : output_label)</TD>
+      </TR>
+      $uwd_row
+      </TABLE>""")
+  end
+end
+
+# Helper generating invisible HTML table cells for each UWD port on a box.
+function uwd_ports_html_label(nports::Int, port_size::String; vertical::Bool)
+  nports == 0 && return ""
+  w = vertical ? "0" : port_size
+  h = vertical ? port_size : "0"
+  cells = [
+    """<TD PORT="uwd$i" WIDTH="$w" HEIGHT="$h" FIXEDSIZE="TRUE" BORDER="0"></TD>"""
+    for i in 1:nports
+  ]
+  inner = vertical ? join(["<TR>$c</TR>" for c in cells]) : "<TR>$(join(cells))</TR>"
+  return """<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0">$inner</TABLE>"""
+end
+
+
+
+
+
 end

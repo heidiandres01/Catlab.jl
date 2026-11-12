@@ -3,18 +3,18 @@ Data structure for undirected directed wiring diagrams.
 """
 module DirectedUndirectedWiringDiagrams
 export DirectedUndirectedWiringDiagram, HasDUWD,
-  AbstractDUWD, TypedDUWD, SchDUWD, SchTypedDUWD,
-  outer_box, box, junction, nboxes, njunctions, boxes, junctions,
-  ports, ports_with_junction, junction_type, port_type,
-  add_box!, add_junction!, add_junctions!, set_junction!, add_wire!,
-  add_wires!, 
-  input_ports, output_ports,
-  set_input_ports!, set_output_ports!, add_input_ports!, add_output_ports!,
-  input_id, output_id, outer_ids, boxes, box_ids, nboxes, nwires, box, wires,
-  has_wire, graph, internal_graph,
-  add_box!, add_wire!, add_wires!, rem_box!, rem_boxes!, rem_wire!,
-  rem_wires!, port_value,
-  all_neighbors, neighbors, outneighbors, inneighbors, in_wires, out_wires
+  AbstractDUWD, TypedDUWD, SchDUWD, SchTypedDUWD
+  # outer_box, box, junction, nboxes, njunctions, boxes, junctions,
+  # ports, ports_with_junction, junction_type, port_type,
+  # add_box!, add_junction!, add_junctions!, set_junction!, add_wire!,
+  # add_wires!, 
+  # input_ports, output_ports,
+  # set_input_ports!, set_output_ports!, add_input_ports!, add_output_ports!,
+  # input_id, output_id, outer_ids, boxes, box_ids, nboxes, nwires, box, wires,
+  # has_wire, graph, internal_graph,
+  # add_box!, add_wire!, add_wires!, rem_box!, rem_boxes!, rem_wire!,
+  # rem_wires!, port_value,
+  # all_neighbors, neighbors, outneighbors, inneighbors, in_wires, out_wires
 
 
   #UWD:
@@ -41,8 +41,8 @@ import ...Graphs: all_neighbors, neighbors, outneighbors, inneighbors
 # using GATlab
 using ...BasicSets, ...CategoricalAlgebra
 using ...Theories: dom, codom, compose, ⋅, id, oplus
-import ..DirectedWiringDiagrams: box, boxes, nboxes, add_box!, add_wire!,
-  add_wires!, singleton_diagram, ocompose, substitute
+# import ..DirectedWiringDiagrams: box, boxes, nboxes, add_box!, add_wire!,
+  # add_wires!, singleton_diagram, ocompose, substitute
 
 
 # import DWD, UWD.
@@ -51,6 +51,18 @@ import ..DirectedWiringDiagrams
   #Port struct, Wire struct
 import ..UndirectedWiringDiagrams
 #elements from UWD:
+
+import ..DirectedWiringDiagrams: input_ports, output_ports, set_input_ports!, set_output_ports!,
+  add_input_ports!, add_output_ports!, input_id, output_id, outer_ids,
+  boxes, box_ids, nboxes, nwires, box, wires, has_wire, graph, internal_graph,
+  add_box!, add_wire!, add_wires!, rem_box!, rem_boxes!, rem_wire!, rem_wires!,
+  port_value, all_neighbors, neighbors, outneighbors, inneighbors,
+  in_wires, out_wires
+
+import ..UndirectedWiringDiagrams: outer_box, junction, njunctions, junctions, ports, ports_with_junction,
+  junction_type, port_type, add_junction!, add_junctions!, set_junction!
+
+
 
 # Data types
 ############
